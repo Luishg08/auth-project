@@ -1,14 +1,11 @@
 import { IsString, IsNotEmpty, IsNumber, IsBoolean, Matches } from 'class-validator';
 
-export class signupdto {
-  @IsString()
-  @IsNotEmpty()
-  fullname: string;
+export class signindto {
 
   @IsString()
   @IsNotEmpty()
   @Matches(/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/)
-  correo: string;
+  email: string;
 
   @IsString()
   @IsNotEmpty()

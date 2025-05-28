@@ -11,68 +11,29 @@ import { Response, Request } from 'express';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
-import * as nodemailer from 'nodemailer';
 import * as dotenv from 'dotenv';
-import { signupdto } from './Models/createProduct.dto';
+import { signupdto } from './Models/signupdto';
+import { signindto } from './Models/signindto';
+import { verifyCodedto } from './Models/signindto copy';
+import { EmailService } from './email/email.service';
 dotenv.config();
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient()
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
-const generateVerificationCode = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
-
-const sendVerificationEmail = async (email, code, fullname) => {
-  console.log('Sending verification email to:', email, 'with code:', code, fullname);
-  try {
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Código de verificación para tu cuenta',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e9e9e9; border-radius: 5px;">
-          <h2 style="color: #333; text-align: center;">Verificación de cuenta</h2>
-          <p>Hola ${fullname},</p>
-          <p>Gracias por registrarte. Para completar tu registro, por favor utiliza el siguiente código de verificación:</p>
-          <div style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-            ${code}
-          </div>
-          <p>Este código expirará en 15 minutos.</p>
-          <p>Si no has solicitado este código, por favor ignora este correo.</p>
-          <p>Saludos,<br>El equipo de soporte</p>
-        </div>
-      `,
-    };
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent: ' + info.response);
-    return true;
-  } catch (error) {
-    console.error('Error sending email:', error);
-    return false;
-  }
-};
 
 @Controller('user')
 export class UserController {
+  constructor(private readonly emailService: EmailService) {}
   @Post('signup')
-  async signUp(@Body() body, @Res() res: Response, dto: signupdto) {
-    let { fullname, email, current_password } = body;
+  async signUp(@Body() body, @Res() res: Response, @Body(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) dto: signupdto) {
     try {
+      const { fullname, email, current_password } = dto;
       const existingUser = await prisma.users.findUnique({ where: { email } });
       if (existingUser) {
         return res.status(400).json({ message: 'User already exists' });
       }
       const hashedPassword = await bcrypt.hash(current_password, 10);
-      const verificationCode = generateVerificationCode();
+      const verificationCode = this.emailService.generateVerificationCode();
       const expirationTime = new Date();
       expirationTime.setMinutes(expirationTime.getMinutes() + 5);
       const user = await prisma.users.create({
@@ -84,7 +45,7 @@ export class UserController {
           verificationCodeExpires: expirationTime,
         },
       });
-      const emailSent = await sendVerificationEmail(
+      const emailSent = await this.emailService.sendVerificationEmail(
         email,
         verificationCode,
         fullname,
@@ -109,25 +70,15 @@ export class UserController {
   }
 
   @Post('signin')
-  async signIn(@Body() body, @Res() res: Response) {
-    let { email, current_password } = body;
-    if (email) email = email.toLowerCase().trim();
-    if (!email || !current_password) {
-      return res.status(400).json({
-        message: 'All required fields: email and password',
-      });
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: 'Invalid email address' });
-    }
+  async signIn(@Body(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) dto: signindto, @Res() res: Response, ) {
     try {
+      let { email, current_password } = dto;
       const userExists = await prisma.users.findUnique({ where: { email } });
       if (!userExists) {
         return res.status(404).json({ message: 'User not found' });
       }
       const validatePassword = await bcrypt.compare(
-        current_password,
+        dto.current_password,
         userExists.current_password,
       );
       if (!validatePassword) {
@@ -137,16 +88,6 @@ export class UserController {
       ) {
         return res.status(400).json({ message: 'User is not active' });
       }
-      const verificationCode = generateVerificationCode();
-      const expirationTime = new Date();
-      expirationTime.setMinutes(expirationTime.getMinutes() + 15);
-      await prisma.users.update({
-        where: { id: userExists.id },
-        data: {
-          verificationCodePhone: verificationCode,
-          verificationCodePhoneExpires: expirationTime,
-        },
-      });
       const token = jwt.sign(
         {
           id: userExists.id,
@@ -154,11 +95,30 @@ export class UserController {
           role: userExists.rol,
         },
         process.env.JWT_SECRET,
-        { expiresIn: '2h' },
+        { expiresIn: process.env.JWT_EXPIRES_IN || '2h' },
       );
+
+      const tokenRefresh = jwt.sign(
+        {
+          id: userExists.id,
+          email: userExists.email,
+          role: userExists.rol,
+        },
+        process.env.JWT_REFRESH_SECRET,
+        { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
+      );
+
+      await prisma.users.update({
+        where: { id: userExists.id },
+        data: {
+          refreshToken: bcrypt.hashSync(tokenRefresh, 10),
+        },
+      });
+
       res.status(200).json({
         message: 'User logged in successfully',
         token,
+        refreshToken: tokenRefresh,
       });
     } catch (error) {
       res.status(500).json({
@@ -169,8 +129,8 @@ export class UserController {
   }
 
   @Post('verify-email')
-  async verifyCode(@Body() body, @Res() res: Response) {
-    const { email, code } = body;
+  async verifyCoded(@Body(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) dto: verifyCodedto, @Res() res: Response) {
+    const { email, code } = dto;
     if (!email || !code) {
       return res.status(400).json({
         message: 'Email and verification code are required',
@@ -224,7 +184,7 @@ export class UserController {
       if (user.isVerified == true) {
         return res.status(400).json({ message: 'User is already verified' });
       }
-      const newCode = generateVerificationCode();
+      const newCode = this.emailService.generateVerificationCode();
       const expirationTime = new Date();
       expirationTime.setMinutes(expirationTime.getMinutes() + 15);
       await prisma.users.update({
@@ -234,7 +194,7 @@ export class UserController {
           verificationCodeExpires: expirationTime,
         },
       });
-      const emailSent = await sendVerificationEmail(
+      const emailSent = await this.emailService.sendVerificationEmail(
         email,
         newCode,
         user.fullname,
@@ -254,60 +214,4 @@ export class UserController {
       });
     }
   }
-
-  @Post('2fa')
-  async twoFactorAuthentication(@Body() body, @Res() res: Response) {
-    let { email, phoneCode } = body;
-    if (email) email = email.toLowerCase().trim();
-    if (!email || !phoneCode) {
-      return res.status(400).json({
-        message: 'All required fields: email and phoneCode',
-      });
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: 'Invalid email address' });
-    }
-    try {
-      const userExists = await prisma.users.findUnique({ where: { email } });
-      if (!userExists) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      if (userExists.isVerified !== true) {
-        return res.status(400).json({ message: 'User is already verified' });
-      }
-      if (userExists.verificationCodePhone !== phoneCode) {
-        return res.status(400).json({ message: 'Invalid verification code' });
-      }
-      if (userExists.verificationCodePhoneExpires < new Date()) {
-        return res.status(400).json({ message: 'Verification code has expired' });
-      }
-      await prisma.users.update({
-        where: { id: userExists.id },
-        data: {
-          verificationCodePhone: null,
-          verificationCodePhoneExpires: null,
-        },
-      });
-      const token = jwt.sign(
-        {
-          id: userExists.id,
-          email: userExists.email,
-          role: userExists.rol,
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || '2h' },
-      );
-      res.status(200).json({
-        message: 'Two factor authentication successfull',
-        token,
-      });
-    } catch (error) {
-      res.status(500).json({
-        message: 'Internal server error',
-        error: error.message,
-      });
-    }
-  }
-
 }
