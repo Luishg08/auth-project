@@ -16,4 +16,4 @@ import { EmailModule } from '../users/email/email.module';
   controllers: [UserController],
   providers: [ JwtStrategy],
 })
-export class UsersModule {}
+export class UserModule {}
