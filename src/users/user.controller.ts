@@ -19,7 +19,7 @@ import * as jwt from 'jsonwebtoken';
 import * as dotenv from 'dotenv';
 import { signupdto } from './Models/signupdto';
 import { signindto } from './Models/signindto';
-import { verifyCodedto } from './Models/signindto copy';
+import { verifyCodedto } from './Models/verifyCodedto';
 import { EmailService } from './email/email.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { patchdto } from './Models/patchdto';
