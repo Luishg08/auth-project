@@ -6,6 +6,11 @@ import {
   Req,
   ValidationPipe,
   UsePipes,
+  Get,
+  UseGuards,
+  Delete,
+  Patch,
+  Put,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { PrismaClient } from '@prisma/client';
@@ -16,6 +21,8 @@ import { signupdto } from './Models/signupdto';
 import { signindto } from './Models/signindto';
 import { verifyCodedto } from './Models/signindto copy';
 import { EmailService } from './email/email.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { patchdto } from './Models/patchdto';
 dotenv.config();
 
 const prisma = new PrismaClient()
@@ -214,4 +221,100 @@ export class UserController {
       });
     }
   }
+
+
+  // @Post('refresh-token')
+  // async refreshToken(@Req() req: Request, @Res() res: Response) {
+  //   try {
+  //   } catch (error) {
+  //     res.status(500).json({
+  //       message: 'Failed to refresh token',
+  //       error: error.message,
+  //     });
+  //   }
+  // }
+  @UseGuards(JwtAuthGuard)
+  @Get('getAll')
+  async getAllUsers(@Res() res: Response) {
+    try {
+
+      const users = await prisma.users.findMany();
+      res.status(200).json(users);
+    } catch (error) {
+      res.status(500).json({
+        message: 'Failed to retrieve users',
+        error: error.message,
+      });
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('getById/:id')
+  async getById(@Res() res: Response, @Req() req: Request) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ message: 'User ID is required' });
+      }
+      const user = await prisma.users.findUnique({ where: { id: id } });
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      res.status(200).json(user);
+    } catch (error) {
+      res.status(500).json({
+        message: 'Failed to retrieve users',
+        error: error.message,
+      });
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('deleteById/:id')
+  async deleteById(@Res() res: Response, @Req() req: Request) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ message: 'User ID is required' });
+      }
+      const user = await prisma.users.findUnique({ where: { id: id } });
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      await prisma.users.delete({ where: { id: id } });
+      res.status(200).json({ message: 'User deleted successfully' });
+    } catch (error) {
+      res.status(500).json({
+        message: 'Failed to delete user',
+        error: error.message,
+      });
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('updateById/:id')
+  async updateById(@Res() res: Response, @Req() req: Request, @Body(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) dto: patchdto) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ message: 'User ID is required' });
+      }
+      const user = await prisma.users.findUnique({ where: { id: id } });
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      const updatedUser = await prisma.users.update({
+        where: { id: id },
+        data: dto,
+      });
+      res.status(200).json({ message: 'User updated successfully', user: updatedUser });
+    } catch (error) {
+      res.status(500).json({
+        message: 'Failed to update user',
+        error: error.message,
+      });
+    }
+  }
+
+
 }
