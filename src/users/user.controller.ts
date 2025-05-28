@@ -23,6 +23,7 @@ import { verifyCodedto } from './Models/signindto copy';
 import { EmailService } from './email/email.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { patchdto } from './Models/patchdto';
+import { updatePassworddto } from './Models/updatePassworddto';
 dotenv.config();
 
 const prisma = new PrismaClient()
@@ -223,16 +224,24 @@ export class UserController {
   }
 
 
-  // @Post('refresh-token')
-  // async refreshToken(@Req() req: Request, @Res() res: Response) {
-  //   try {
-  //   } catch (error) {
-  //     res.status(500).json({
-  //       message: 'Failed to refresh token',
-  //       error: error.message,
-  //     });
-  //   }
-  // }
+  @Get('refresh-token')
+  async refreshToken(@Req() req: Request, @Res() res: Response) {
+    try {
+      const newToken = jwt.sign(
+        {
+        
+        },
+        process.env.JWT_REFRESH_SECRET,
+        { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '2h' },
+      );
+      res.status(200).json({ token: newToken });
+    } catch (error) {
+      res.status(500).json({
+        message: 'Failed to refresh token',
+        error: error.message,
+      });
+    }
+  }
   @UseGuards(JwtAuthGuard)
   @Get('getAll')
   async getAllUsers(@Res() res: Response) {
@@ -316,5 +325,38 @@ export class UserController {
     }
   }
 
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('changePassword/:id')
+  async changePassword(@Res() res: Response, @Req() req: Request, @Body(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })) dto: updatePassworddto) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({ message: 'User ID is required' });
+      }
+      const user = await prisma.users.findUnique({ where: { id: id } });
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      const isPasswordValid = await bcrypt.compare(dto.old_password, user.current_password);
+      if (!isPasswordValid) {
+        return res.status(400).json({ message: 'Old password is incorrect' });
+      }
+      if (dto.new_password === dto.old_password) {
+        return res.status(400).json({ message: 'New password cannot be the same as old password' });
+      }
+      const hashedPassword = await bcrypt.hash(dto.new_password, 10);
+      const updatedUser = await prisma.users.update({
+        where: { id: id },
+        data: { current_password: hashedPassword },
+      });
+      res.status(200).json({ message: 'Password changed successfully', user: updatedUser });
+    } catch (error) {
+      res.status(500).json({
+        message: 'Failed to change password',
+        error: error.message,
+      });
+    }
+  }
 
 }
