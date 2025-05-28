@@ -1,32 +1,17 @@
-import { IsString, IsNotEmpty, IsNumber, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsBoolean, Matches } from 'class-validator';
 
-export class createProductDto {
+export class signupdto {
   @IsString()
   @IsNotEmpty()
-  name : string;
-
-  @IsString()
-  @IsNotEmpty()
-  category : string;
+  fullname: string;
 
   @IsString()
   @IsNotEmpty()
-  description : string;
-
-  @IsNumber()
-  @IsNotEmpty()
-  price : number;
+  @Matches(/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/)
+  correo: string;
 
   @IsString()
   @IsNotEmpty()
-  picture : string;
-
-  @IsBoolean()
-  @IsNotEmpty()
-  fragile : boolean;
-
-  @IsString()
-  @IsNotEmpty()
-  id : string;
+  current_password: string;
   
 }
