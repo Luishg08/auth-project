@@ -12,9 +12,8 @@ model Users {
   fullname                     String
   email                        String      @unique
   current_password             String
-  rol                          Role        @default(GERENTE)
-  status                       Status      @default(PENDING)
-  phone                        String      @unique
+  rol                          Role        @default(Developer)
+  isVerified                  Boolean     @default(false)
   verificationCodePhone        String?
   verificationCodePhoneExpires DateTime?
   verificationCode             String?
@@ -70,9 +69,9 @@ model Warehouse {
 }
 
 enum Role {
-  SUPERADMIN
-  EDITOR
-  GERENTE
+  EXPERTODOCKER
+  DevOps
+  Developer
 }
 
 enum Status {

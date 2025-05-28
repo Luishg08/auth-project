@@ -13,6 +13,7 @@ import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import * as nodemailer from 'nodemailer';
 import * as dotenv from 'dotenv';
+import { signupdto } from './Models/createProduct.dto';
 dotenv.config();
 
 const prisma = new PrismaClient();
@@ -23,7 +24,7 @@ const transporter = nodemailer.createTransport({
   secure: true,
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
+    pass: process.env.EMAIL_PASS,
   },
 });
 
@@ -31,6 +32,7 @@ const generateVerificationCode = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
 
 const sendVerificationEmail = async (email, code, fullname) => {
+  console.log('Sending verification email to:', email, 'with code:', code, fullname);
   try {
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -62,23 +64,8 @@ const sendVerificationEmail = async (email, code, fullname) => {
 @Controller('user')
 export class UserController {
   @Post('signup')
-  async signUp(@Body() body, @Res() res: Response) {
-    let { fullname, email, current_password, phone } = body;
-    if (email) email = email.toLowerCase().trim();
-    if (!fullname || !email || !current_password || !phone) {
-      return res.status(400).json({
-        message: 'fullname, email, current_password are required',
-      });
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
-    }
-    if (current_password.length < 6) {
-      return res.status(400).json({
-        message: 'Password must be at least 6 characters',
-      });
-    }
+  async signUp(@Body() body, @Res() res: Response, dto: signupdto) {
+    let { fullname, email, current_password } = body;
     try {
       const existingUser = await prisma.users.findUnique({ where: { email } });
       if (existingUser) {
@@ -87,14 +74,12 @@ export class UserController {
       const hashedPassword = await bcrypt.hash(current_password, 10);
       const verificationCode = generateVerificationCode();
       const expirationTime = new Date();
-      expirationTime.setMinutes(expirationTime.getMinutes() + 15);
+      expirationTime.setMinutes(expirationTime.getMinutes() + 5);
       const user = await prisma.users.create({
         data: {
           fullname,
           email,
           current_password: hashedPassword,
-          status: 'PENDING',
-          phone,
           verificationCode,
           verificationCodeExpires: expirationTime,
         },
@@ -148,7 +133,8 @@ export class UserController {
       if (!validatePassword) {
         return res.status(400).json({ message: "Password doesn't match" });
       }
-      if (userExists.status !== 'ACTIVE') {
+      if (userExists.isVerified === false
+      ) {
         return res.status(400).json({ message: 'User is not active' });
       }
       const verificationCode = generateVerificationCode();
@@ -195,7 +181,7 @@ export class UserController {
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
-      if (user.status === 'ACTIVE') {
+      if (user.isVerified == true) {
         return res.status(400).json({ message: 'User is already verified' });
       }
       const now = new Date();
@@ -210,7 +196,7 @@ export class UserController {
       await prisma.users.update({
         where: { id: user.id },
         data: {
-          status: 'ACTIVE',
+          isVerified: true,
           verificationCode: null,
           verificationCodeExpires: null,
         },
@@ -235,7 +221,7 @@ export class UserController {
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
-      if (user.status === 'ACTIVE') {
+      if (user.isVerified == true) {
         return res.status(400).json({ message: 'User is already verified' });
       }
       const newCode = generateVerificationCode();
@@ -287,8 +273,8 @@ export class UserController {
       if (!userExists) {
         return res.status(404).json({ message: 'User not found' });
       }
-      if (userExists.status !== 'ACTIVE') {
-        return res.status(400).json({ message: 'User is not active' });
+      if (userExists.isVerified !== true) {
+        return res.status(400).json({ message: 'User is already verified' });
       }
       if (userExists.verificationCodePhone !== phoneCode) {
         return res.status(400).json({ message: 'Invalid verification code' });
@@ -310,7 +296,7 @@ export class UserController {
           role: userExists.rol,
         },
         process.env.JWT_SECRET,
-        { expiresIn: '2h' },
+        { expiresIn: process.env.JWT_EXPIRES_IN || '2h' },
       );
       res.status(200).json({
         message: 'Two factor authentication successfull',
